@@ -15,6 +15,11 @@ import (
 	"github.com/google/uuid"
 )
 
+type Signal struct {
+	ShutdownAPI           chan struct{}
+	ShutdownTaskScheduler chan struct{}
+}
+
 type Manager struct {
 	name          string
 	Workers       []string // worker addresses
@@ -22,6 +27,7 @@ type Manager struct {
 	TaskQueue     *queue.Queue
 	tasks         map[uuid.UUID]task.Task
 	taskWorkerMap map[uuid.UUID]string
+	signal        Signal
 }
 
 func Run(args []string) {
@@ -35,6 +41,7 @@ func Run(args []string) {
 		TaskQueue:     queue.New(),
 		tasks:         make(map[uuid.UUID]task.Task),
 		taskWorkerMap: make(map[uuid.UUID]string),
+		signal:        Signal{ShutdownAPI: make(chan struct{}), ShutdownTaskScheduler: make(chan struct{})},
 	}
 	a := Api{
 		Address: "localhost",
@@ -42,8 +49,10 @@ func Run(args []string) {
 		Manager: m,
 	}
 
-	go m.run(1000)
-	a.Init()
+	go m.runTaskScheduler(1000)
+	a.Start()
+
+	log.Printf("[%s] exiting", m.name)
 }
 
 func (m *Manager) AddTask(t task.Task) {
@@ -68,6 +77,8 @@ func (m *Manager) selectWorker(taskId uuid.UUID) string {
 
 	if m.nextWorker == len(m.Workers)-1 {
 		m.nextWorker = 0
+	} else {
+		m.nextWorker += 1
 	}
 
 	return m.Workers[m.nextWorker]
@@ -134,13 +145,19 @@ func (m *Manager) updateTasks() {
 	}
 }
 
-func (m *Manager) run(millis int) {
+func (m *Manager) runTaskScheduler(millis int) {
 	for {
-		// CHECKME should updateTasks and sendTasks run in parallel?
-		m.updateTasks()
-		m.sendTasks()
+		select {
+		case <-m.signal.ShutdownTaskScheduler:
+			log.Printf("[%s] shutting down task scheduler", m.name)
+			return
+		default:
+			// CHECKME should updateTasks and sendTasks run in parallel?
+			m.updateTasks()
+			m.sendTasks()
 
-		log.Printf("[%v] sleeping for %d ms", m.name, millis)
-		time.Sleep(time.Millisecond * time.Duration(millis))
+			log.Printf("[%v] sleeping for %d ms", m.name, millis)
+			time.Sleep(time.Millisecond * time.Duration(millis))
+		}
 	}
 }
