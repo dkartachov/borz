@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/dkartachov/borz/internal/task"
 	"github.com/go-chi/chi/v5"
@@ -68,6 +69,8 @@ func (a *Api) stopTaskHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *Api) shutDownHandler(w http.ResponseWriter, r *http.Request) {
+	a.online = false
+	close(a.Manager.signal.ShutdownTaskScheduler)
 	workers := a.Manager.Workers
 	// TODO Start some kind of polling goroutine that hits an endpoint to check if all workers have been
 	// shut down. Once all workers have been shut down, initiate manager shutdown.
@@ -84,6 +87,26 @@ func (a *Api) shutDownHandler(w http.ResponseWriter, r *http.Request) {
 
 		resp.Body.Close()
 	}
+
+	// TODO add context timeout to prevent infinite loop
+	go func() {
+		log.Printf("[%s] polling for workers shutdown", a.Manager.name)
+		shutdown := 0
+		for shutdown < len(workers) {
+			for _, w := range workers {
+				resp, err := http.Get(fmt.Sprintf("%s/alive", w))
+				if err != nil {
+					shutdown += 1
+					continue
+				}
+
+				resp.Body.Close()
+			}
+
+			time.Sleep(time.Second * 1)
+		}
+		close(a.Manager.signal.ShutdownAPI)
+	}()
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
