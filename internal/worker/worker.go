@@ -4,19 +4,19 @@ import (
 	"fmt"
 	"log"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/dkartachov/borz/internal/docker"
 	"github.com/dkartachov/borz/internal/task"
-	"github.com/golang-collections/collections/queue"
 	"github.com/google/uuid"
 )
 
 type Worker struct {
-	name      string
-	TaskQueue *queue.Queue
-	tasks     map[uuid.UUID]task.Task
-	Signal    Signal
+	name   string
+	Queue  chan task.Task
+	tasks  map[uuid.UUID]task.Task
+	Signal Signal
 }
 
 type Signal struct {
@@ -28,10 +28,10 @@ func Run(args []string) {
 	name := args[0]
 	port, _ := strconv.Atoi(args[1])
 	w := Worker{
-		name:      name,
-		TaskQueue: queue.New(),
-		tasks:     make(map[uuid.UUID]task.Task), // CHECKME connect to database instead of storing tasks in memory?
-		Signal:    Signal{ShutdownAPI: make(chan struct{}), ShutdownTaskRunner: make(chan struct{})},
+		name:   name,
+		Queue:  make(chan task.Task),
+		tasks:  make(map[uuid.UUID]task.Task), // CHECKME connect to database instead of storing tasks in memory?
+		Signal: Signal{ShutdownAPI: make(chan struct{}), ShutdownTaskRunner: make(chan struct{})},
 	}
 	a := Api{
 		Address: "localhost",
@@ -49,7 +49,7 @@ func (w *Worker) Name() string {
 }
 
 func (w *Worker) AddTask(t task.Task) {
-	w.TaskQueue.Enqueue(t)
+	w.Queue <- t
 }
 
 func (w *Worker) StartTask(t task.Task) error {
@@ -111,30 +111,34 @@ func (w *Worker) runTasks(intervalMillis int) {
 		case <-w.Signal.ShutdownTaskRunner:
 			log.Printf("[%v] shutting down task runner", w.name)
 			log.Printf("[%v] stopping tasks", w.name)
+			var wg sync.WaitGroup
 			for _, t := range w.tasks {
-				w.StopTask(t)
+				wg.Add(1)
+				go func(t task.Task) {
+					w.StopTask(t)
+					wg.Done()
+				}(t)
 			}
+			wg.Wait()
 			// CHECKME anything else?
 			close(w.Signal.ShutdownAPI)
 			return
-		default:
-			if w.TaskQueue.Len() > 0 {
-				log.Printf("[%v] updating tasks", w.name)
-				if err := w.runTask(); err != nil {
-					log.Printf("[%v] error running task: %v", w.name, err)
+		case t := <-w.Queue:
+			go func() {
+				log.Printf("[%v] running task %s", w.name, t.Name)
+				if err := w.runTask(t); err != nil {
+					log.Printf("[%v] error running task %s: %v", w.name, t.Name, err)
 				}
-			} else {
-				log.Printf("[%v] no tasks found in queue", w.name)
-			}
+			}()
 		}
-		log.Printf("[%v] sleeping for %d ms", w.name, intervalMillis)
-		time.Sleep(time.Millisecond * time.Duration(intervalMillis))
+		// log.Printf("[%v] sleeping for %d ms", w.name, intervalMillis)
+		// time.Sleep(time.Millisecond * time.Duration(intervalMillis))
 	}
 }
 
-func (w *Worker) runTask() error {
-	ti := w.TaskQueue.Dequeue()
-	taskQueued := ti.(task.Task)
+func (w *Worker) runTask(taskQueued task.Task) error {
+	// ti := w.TaskQueue.Dequeue()
+	// taskQueued := ti.(task.Task)
 	taskPersisted, ok := w.tasks[taskQueued.Id]
 	if !ok {
 		taskPersisted = taskQueued

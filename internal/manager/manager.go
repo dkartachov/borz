@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/dkartachov/borz/internal/task"
-	"github.com/golang-collections/collections/queue"
 	"github.com/google/uuid"
 )
 
@@ -24,7 +23,7 @@ type Manager struct {
 	name          string
 	Workers       []string // worker addresses
 	nextWorker    int
-	TaskQueue     *queue.Queue
+	Queue         chan task.Task
 	tasks         map[uuid.UUID]task.Task
 	taskWorkerMap map[uuid.UUID]string
 	signal        Signal
@@ -38,7 +37,7 @@ func Run(args []string) {
 		name:          name,
 		Workers:       workers, // TODO need a better way to instantiate this array
 		nextWorker:    0,
-		TaskQueue:     queue.New(),
+		Queue:         make(chan task.Task),
 		tasks:         make(map[uuid.UUID]task.Task),
 		taskWorkerMap: make(map[uuid.UUID]string),
 		signal:        Signal{ShutdownAPI: make(chan struct{}), ShutdownTaskScheduler: make(chan struct{})},
@@ -49,14 +48,15 @@ func Run(args []string) {
 		Manager: m,
 	}
 
-	go m.runTaskScheduler(1000)
+	go m.runTaskScheduler()
+	go m.updateTasks(1000)
 	a.Start()
 
 	log.Printf("[%s] exiting", m.name)
 }
 
 func (m *Manager) AddTask(t task.Task) {
-	m.TaskQueue.Enqueue(t)
+	m.Queue <- t
 }
 
 func (m *Manager) GetTasks() []TaskResponse {
@@ -84,80 +84,74 @@ func (m *Manager) selectWorker(taskId uuid.UUID) string {
 	return m.Workers[m.nextWorker]
 }
 
-func (m *Manager) sendTasks() {
-	log.Printf("[%v] sending tasks", m.name)
-	if m.TaskQueue.Len() > 0 {
-		ti := m.TaskQueue.Dequeue()
-		t := ti.(task.Task)
-		// CHECKME Is there a better place to set this?
-		if t.State == task.Pending {
-			t.State = task.Scheduled
-		}
+func (m *Manager) sendTask(t task.Task) {
+	log.Printf("[%v] sending task %s", m.name, t.Name)
+	// CHECKME Is there a better place to set this?
+	if t.State == task.Pending {
+		t.State = task.Scheduled
+	}
 
-		w := m.selectWorker(t.Id)
-		log.Printf("[%v] sending task to %v", m.name, w)
+	w := m.selectWorker(t.Id)
+	log.Printf("[%v] selected worker %v", m.name, w)
 
-		req, err := json.Marshal(t)
-		if err != nil {
-			log.Printf("[%v] error marshaling task request %v", m.name, t.Id)
-			return
-		}
+	req, err := json.Marshal(t)
+	if err != nil {
+		log.Printf("[%v] error marshaling task request %v", m.name, t.Id)
+		return
+	}
 
-		resp, err := http.Post(fmt.Sprintf("%s/tasks", w), "application/json", bytes.NewBuffer(req))
-		if err != nil {
-			log.Printf("[%v] error connecting to %s", m.name, w)
-			return
-		}
+	resp, err := http.Post(fmt.Sprintf("%s/tasks", w), "application/json", bytes.NewBuffer(req))
+	if err != nil {
+		log.Printf("[%v] error connecting to %s", m.name, w)
+		return
+	}
 
-		if resp.StatusCode != http.StatusOK {
-			log.Printf("[%v] error sending task to %s", m.name, w)
-			resp.Body.Close()
-			return
-		}
-
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("[%v] error sending task to %s", m.name, w)
 		resp.Body.Close()
-		m.taskWorkerMap[t.Id] = w
+		return
+	}
+
+	resp.Body.Close()
+	m.taskWorkerMap[t.Id] = w
+}
+
+func (m *Manager) updateTasks(intervalMillis int) {
+	for {
+		log.Printf("[%v] updating tasks", m.name)
+		for _, w := range m.Workers {
+			resp, err := http.Get(fmt.Sprintf("%s/tasks", w))
+			if err != nil {
+				log.Printf("[%v] error connecting to %s", m.name, w)
+				continue
+			}
+
+			if resp.StatusCode != http.StatusOK {
+				log.Printf("[%v] error getting tasks from %s", m.name, w)
+				resp.Body.Close()
+				continue
+			}
+
+			var tasks []task.Task
+			json.NewDecoder(resp.Body).Decode(&tasks)
+
+			for _, t := range tasks {
+				m.tasks[t.Id] = t
+				m.taskWorkerMap[t.Id] = w
+			}
+		}
+		time.Sleep(time.Millisecond * time.Duration(intervalMillis))
 	}
 }
 
-func (m *Manager) updateTasks() {
-	log.Printf("[%v] updating tasks", m.name)
-	for _, w := range m.Workers {
-		resp, err := http.Get(fmt.Sprintf("%s/tasks", w))
-		if err != nil {
-			log.Printf("[%v] error connecting to %s", m.name, w)
-			continue
-		}
-
-		if resp.StatusCode != http.StatusOK {
-			log.Printf("[%v] error getting tasks from %s", m.name, w)
-			resp.Body.Close()
-			continue
-		}
-
-		var tasks []task.Task
-		json.NewDecoder(resp.Body).Decode(&tasks)
-
-		for _, t := range tasks {
-			m.tasks[t.Id] = t
-			m.taskWorkerMap[t.Id] = w
-		}
-	}
-}
-
-func (m *Manager) runTaskScheduler(millis int) {
+func (m *Manager) runTaskScheduler() {
 	for {
 		select {
 		case <-m.signal.ShutdownTaskScheduler:
 			log.Printf("[%s] shutting down task scheduler", m.name)
 			return
-		default:
-			// CHECKME should updateTasks and sendTasks run in parallel?
-			m.updateTasks()
-			m.sendTasks()
-
-			log.Printf("[%v] sleeping for %d ms", m.name, millis)
-			time.Sleep(time.Millisecond * time.Duration(millis))
+		case t := <-m.Queue:
+			go m.sendTask(t)
 		}
 	}
 }
