@@ -29,6 +29,10 @@ func (a *Api) addTaskHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+func (a *Api) aliveHandler(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
 // shutDownHandler handles a graceful shutdown request.
 //
 // (1) The server is shut down first to prevent the worker from

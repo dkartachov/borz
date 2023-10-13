@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -50,8 +49,6 @@ func (a *Api) Start() {
 
 	go func() {
 		<-a.Worker.Signal.ShutdownAPI
-		// TODO remove sleep
-		time.Sleep(time.Second * 5)
 		log.Printf("[%s] shutting down API server", a.Worker.name)
 		if err := server.Shutdown(context.Background()); err != nil {
 			log.Fatal(err)
@@ -72,4 +69,5 @@ func (a *Api) init() {
 		r.Post("/", a.addTaskHandler)
 	})
 	a.router.Post("/shutdown", a.shutDownHandler)
+	a.router.Get("/alive", a.aliveHandler)
 }
