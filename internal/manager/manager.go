@@ -118,29 +118,35 @@ func (m *Manager) sendTask(t task.Task) {
 
 func (m *Manager) updateTasks(intervalMillis int) {
 	for {
-		log.Printf("[%v] updating tasks", m.name)
-		for _, w := range m.Workers {
-			resp, err := http.Get(fmt.Sprintf("%s/tasks", w))
-			if err != nil {
-				log.Printf("[%v] error connecting to %s", m.name, w)
-				continue
-			}
+		select {
+		case <-m.signal.ShutdownTaskScheduler:
+			log.Printf("[%s] shutting down task updater", m.name)
+			return
+		default:
+			log.Printf("[%v] updating tasks", m.name)
+			for _, w := range m.Workers {
+				resp, err := http.Get(fmt.Sprintf("%s/tasks", w))
+				if err != nil {
+					log.Printf("[%v] error connecting to %s", m.name, w)
+					continue
+				}
 
-			if resp.StatusCode != http.StatusOK {
-				log.Printf("[%v] error getting tasks from %s", m.name, w)
-				resp.Body.Close()
-				continue
-			}
+				if resp.StatusCode != http.StatusOK {
+					log.Printf("[%v] error getting tasks from %s", m.name, w)
+					resp.Body.Close()
+					continue
+				}
 
-			var tasks []task.Task
-			json.NewDecoder(resp.Body).Decode(&tasks)
+				var tasks []task.Task
+				json.NewDecoder(resp.Body).Decode(&tasks)
 
-			for _, t := range tasks {
-				m.tasks[t.Id] = t
-				m.taskWorkerMap[t.Id] = w
+				for _, t := range tasks {
+					m.tasks[t.Id] = t
+					m.taskWorkerMap[t.Id] = w
+				}
 			}
+			time.Sleep(time.Millisecond * time.Duration(intervalMillis))
 		}
-		time.Sleep(time.Millisecond * time.Duration(intervalMillis))
 	}
 }
 
