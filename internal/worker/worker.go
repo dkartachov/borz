@@ -38,7 +38,7 @@ func Run(args []string) {
 		Port:    port,
 		Worker:  w,
 	}
-	go w.runTasks(1000)
+	go w.runTasks()
 	a.Start()
 
 	log.Printf("[%v] exiting", w.name)
@@ -105,7 +105,7 @@ func (w *Worker) GetTasks() []task.Task {
 }
 
 // CHECKME Dequeue ALL tasks and run them concurrently using goroutines?
-func (w *Worker) runTasks(intervalMillis int) {
+func (w *Worker) runTasks() {
 	for {
 		select {
 		case <-w.Signal.ShutdownTaskRunner:
@@ -131,8 +131,6 @@ func (w *Worker) runTasks(intervalMillis int) {
 				}
 			}()
 		}
-		// log.Printf("[%v] sleeping for %d ms", w.name, intervalMillis)
-		// time.Sleep(time.Millisecond * time.Duration(intervalMillis))
 	}
 }
 
