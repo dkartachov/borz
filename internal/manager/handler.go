@@ -17,6 +17,8 @@ type TaskResponse struct {
 	Worker string
 }
 
+// TODO split handlers into separate router files
+
 func (a *Api) getTasksHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -111,4 +113,10 @@ func (a *Api) shutDownHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("graceful shutdown initiated"))
+}
+
+func (a *Api) getWorkersHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(a.Manager.Workers)
 }

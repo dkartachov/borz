@@ -68,6 +68,9 @@ func (a *Api) init() {
 		r.Post("/", a.startTaskHandler)
 		r.Delete("/{taskId}", a.stopTaskHandler)
 	})
+	a.router.Route("/workers", func(r chi.Router) {
+		r.Get("/", a.getWorkersHandler)
+	})
 	a.router.Post("/shutdown", a.shutDownHandler)
 	a.online = true
 }
