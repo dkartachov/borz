@@ -31,7 +31,7 @@ func (a *Api) startTaskHandler(w http.ResponseWriter, r *http.Request) {
 	d := json.NewDecoder(r.Body)
 	d.DisallowUnknownFields()
 	if err := d.Decode(&t); err != nil {
-		log.Printf("[%v] error decoding json: %v", a.Manager.name, err)
+		log.Printf("[%v] error decoding json: %v", a.Manager.Name, err)
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -72,19 +72,19 @@ func (a *Api) stopTaskHandler(w http.ResponseWriter, r *http.Request) {
 
 func (a *Api) shutDownHandler(w http.ResponseWriter, r *http.Request) {
 	a.online = false
-	close(a.Manager.signal.ShutdownTaskScheduler)
+	close(a.Manager.Signal.ShutdownTaskScheduler)
 	workers := a.Manager.Workers
 	// TODO Start some kind of polling goroutine that hits an endpoint to check if all workers have been
 	// shut down. Once all workers have been shut down, initiate manager shutdown.
 	for _, w := range workers {
 		resp, err := http.Post(fmt.Sprintf("%s/shutdown", w), "application/json", nil)
 		if err != nil {
-			log.Printf("[%v] error connecting to worker %s", a.Manager.name, w)
+			log.Printf("[%v] error connecting to worker %s", a.Manager.Name, w)
 			continue
 		}
 
 		if resp.StatusCode != http.StatusOK {
-			log.Printf("[%v] error shutting down worker %s", a.Manager.name, w)
+			log.Printf("[%v] error shutting down worker %s", a.Manager.Name, w)
 		}
 
 		resp.Body.Close()
@@ -92,7 +92,7 @@ func (a *Api) shutDownHandler(w http.ResponseWriter, r *http.Request) {
 
 	// TODO add context timeout to prevent infinite loop
 	go func() {
-		log.Printf("[%s] polling for workers shutdown", a.Manager.name)
+		log.Printf("[%s] polling for workers shutdown", a.Manager.Name)
 		shutdown := 0
 		for shutdown < len(workers) {
 			for _, w := range workers {
@@ -107,7 +107,7 @@ func (a *Api) shutDownHandler(w http.ResponseWriter, r *http.Request) {
 
 			time.Sleep(time.Second * 1)
 		}
-		close(a.Manager.signal.ShutdownAPI)
+		close(a.Manager.Signal.ShutdownAPI)
 	}()
 
 	w.Header().Set("Content-Type", "application/json")

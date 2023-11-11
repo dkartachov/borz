@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dkartachov/borz/internal/manager/api"
+	"github.com/dkartachov/borz/internal/manager/database"
 	"github.com/dkartachov/borz/internal/task"
 	"github.com/google/uuid"
 )
@@ -20,13 +22,13 @@ type Signal struct {
 }
 
 type Manager struct {
-	name          string
+	Name          string
 	Workers       []string // worker addresses
 	nextWorker    int
 	Queue         chan task.Task
 	tasks         map[uuid.UUID]task.Task
 	taskWorkerMap map[uuid.UUID]string
-	signal        Signal
+	Signal        Signal
 }
 
 func Run(args []string) {
@@ -34,25 +36,28 @@ func Run(args []string) {
 	port, _ := strconv.Atoi(args[1])
 	workers := strings.Split(args[2], ",")
 	m := Manager{
-		name:          name,
+		Name:          name,
 		Workers:       workers, // TODO need a better way to instantiate this array
 		nextWorker:    0,
 		Queue:         make(chan task.Task),
 		tasks:         make(map[uuid.UUID]task.Task),
 		taskWorkerMap: make(map[uuid.UUID]string),
-		signal:        Signal{ShutdownAPI: make(chan struct{}), ShutdownTaskScheduler: make(chan struct{})},
+		Signal:        Signal{ShutdownAPI: make(chan struct{}), ShutdownTaskScheduler: make(chan struct{})},
 	}
-	a := Api{
-		Address: "localhost",
-		Port:    port,
-		Manager: m,
+
+	db := database.Database{Workers: workers}
+
+	a := api.API{
+		Address:  "localhost",
+		Port:     port,
+		Database: &db,
 	}
 
 	go m.runTaskScheduler()
 	go m.updateTasks(1000)
 	a.Start()
 
-	log.Printf("[%s] exiting", m.name)
+	log.Printf("[%s] exiting", m.Name)
 }
 
 func (m *Manager) AddTask(t task.Task) {
@@ -85,29 +90,29 @@ func (m *Manager) selectWorker(taskId uuid.UUID) string {
 }
 
 func (m *Manager) sendTask(t task.Task) {
-	log.Printf("[%v] sending task %s", m.name, t.Name)
+	log.Printf("[%v] sending task %s", m.Name, t.Name)
 	// CHECKME Is there a better place to set this?
 	if t.State == task.Pending {
 		t.State = task.Scheduled
 	}
 
 	w := m.selectWorker(t.Id)
-	log.Printf("[%v] selected worker %v", m.name, w)
+	log.Printf("[%v] selected worker %v", m.Name, w)
 
 	req, err := json.Marshal(t)
 	if err != nil {
-		log.Printf("[%v] error marshaling task request %v", m.name, t.Id)
+		log.Printf("[%v] error marshaling task request %v", m.Name, t.Id)
 		return
 	}
 
 	resp, err := http.Post(fmt.Sprintf("%s/tasks", w), "application/json", bytes.NewBuffer(req))
 	if err != nil {
-		log.Printf("[%v] error connecting to %s", m.name, w)
+		log.Printf("[%v] error connecting to %s", m.Name, w)
 		return
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		log.Printf("[%v] error sending task to %s", m.name, w)
+		log.Printf("[%v] error sending task to %s", m.Name, w)
 		resp.Body.Close()
 		return
 	}
@@ -119,20 +124,20 @@ func (m *Manager) sendTask(t task.Task) {
 func (m *Manager) updateTasks(intervalMillis int) {
 	for {
 		select {
-		case <-m.signal.ShutdownTaskScheduler:
-			log.Printf("[%s] shutting down task updater", m.name)
+		case <-m.Signal.ShutdownTaskScheduler:
+			log.Printf("[%s] shutting down task updater", m.Name)
 			return
 		default:
-			log.Printf("[%v] updating tasks", m.name)
+			log.Printf("[%v] updating tasks", m.Name)
 			for _, w := range m.Workers {
 				resp, err := http.Get(fmt.Sprintf("%s/tasks", w))
 				if err != nil {
-					log.Printf("[%v] error connecting to %s", m.name, w)
+					log.Printf("[%v] error connecting to %s", m.Name, w)
 					continue
 				}
 
 				if resp.StatusCode != http.StatusOK {
-					log.Printf("[%v] error getting tasks from %s", m.name, w)
+					log.Printf("[%v] error getting tasks from %s", m.Name, w)
 					resp.Body.Close()
 					continue
 				}
@@ -153,8 +158,8 @@ func (m *Manager) updateTasks(intervalMillis int) {
 func (m *Manager) runTaskScheduler() {
 	for {
 		select {
-		case <-m.signal.ShutdownTaskScheduler:
-			log.Printf("[%s] shutting down task scheduler", m.name)
+		case <-m.Signal.ShutdownTaskScheduler:
+			log.Printf("[%s] shutting down task scheduler", m.Name)
 			return
 		case t := <-m.Queue:
 			go m.sendTask(t)

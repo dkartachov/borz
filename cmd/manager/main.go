@@ -1,6 +1,3 @@
-/*
-The borzlet acts as the orchestration system's manager.
-*/
 package main
 
 import (

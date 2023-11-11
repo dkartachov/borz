@@ -31,17 +31,17 @@ func (a *Api) Start() {
 	serverCtx, cancelServerCtx := context.WithCancel(context.Background())
 
 	go func() {
-		<-a.Manager.signal.ShutdownAPI
-		log.Printf("[%s] shutting down API server", a.Manager.name)
+		<-a.Manager.Signal.ShutdownAPI
+		log.Printf("[%s] shutting down API server", a.Manager.Name)
 		shutdownCtx, cancelShutdownCtx := context.WithTimeout(serverCtx, time.Second*60)
 		defer cancelShutdownCtx()
 		if err := server.Shutdown(shutdownCtx); err != nil {
-			log.Fatalf("[%s] shutdown timed out, forcing exit: %v", a.Manager.name, err)
+			log.Fatalf("[%s] shutdown timed out, forcing exit: %v", a.Manager.Name, err)
 		}
 		cancelServerCtx()
 	}()
 
-	log.Printf("[%s] server listening on port %d", a.Manager.name, a.Port)
+	log.Printf("[%s] server listening on port %d", a.Manager.Name, a.Port)
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
 	}
