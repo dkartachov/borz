@@ -6,27 +6,30 @@ import (
 	"net/http"
 
 	"github.com/dkartachov/borz/internal/manager/api/deployment"
+	"github.com/dkartachov/borz/internal/manager/api/pod"
 	"github.com/dkartachov/borz/internal/manager/api/task"
 	"github.com/dkartachov/borz/internal/manager/api/worker"
 	"github.com/dkartachov/borz/internal/manager/database"
+	"github.com/dkartachov/borz/internal/manager/scheduler"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 )
 
-type API struct {
-	Address  string
-	Port     int
-	Database *database.Database
-	router   *chi.Mux
-	manager  string
-	online   bool
+type Server struct {
+	Address   string
+	Port      int
+	Scheduler *scheduler.Scheduler
+	Database  *database.Database
+	router    *chi.Mux
+	manager   string
+	online    bool
 }
 
-func (a *API) Start() {
-	a.init()
+func (s *Server) Start() {
+	s.init()
 	server := http.Server{
-		Addr:    fmt.Sprintf("%s:%d", a.Address, a.Port),
-		Handler: a.router,
+		Addr:    fmt.Sprintf("%s:%d", s.Address, s.Port),
+		Handler: s.router,
 	}
 
 	// sig := make(chan os.Signal, 1)
@@ -44,7 +47,7 @@ func (a *API) Start() {
 	// 	cancelServerCtx()
 	// }()
 
-	log.Printf("[%s] server listening on port %d", a.manager, a.Port)
+	log.Printf("[%s] server listening on port %d", s.manager, s.Port)
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
 	}
@@ -52,14 +55,14 @@ func (a *API) Start() {
 	// <-serverCtx.Done()
 }
 
-func (a *API) init() {
-	a.router = chi.NewRouter()
+func (s *Server) init() {
+	s.router = chi.NewRouter()
 	// TODO add middleware that checks if a shutdown request was recently received
 	// and if so, respond with proper status code
-	a.router.Use(middleware.Logger)
-	a.router.Use(func(next http.Handler) http.Handler {
+	s.router.Use(middleware.Logger)
+	s.router.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if !a.online {
+			if !s.online {
 				http.Error(w, "API server offline", http.StatusServiceUnavailable)
 				return
 			}
@@ -67,9 +70,10 @@ func (a *API) init() {
 		})
 	})
 
-	a.router.Mount("/tasks", task.Router(a.Database))
-	a.router.Mount("/deployments", deployment.Router(a.Database))
-	a.router.Mount("/workers", worker.Router(a.Database))
+	s.router.Mount("/tasks", task.Router(s.Database))
+	s.router.Mount("/deployments", deployment.Router(s.Database))
+	s.router.Mount("/workers", worker.Router(s.Database))
+	s.router.Mount("/pods", pod.Router(s.Database, s.Scheduler))
 
-	a.online = true
+	s.online = true
 }

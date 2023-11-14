@@ -8,7 +8,11 @@ import (
 	"time"
 
 	"github.com/dkartachov/borz/internal/docker"
+	"github.com/dkartachov/borz/internal/model"
 	"github.com/dkartachov/borz/internal/task"
+	"github.com/dkartachov/borz/internal/worker/api"
+	"github.com/dkartachov/borz/internal/worker/borzlet"
+	"github.com/golang-collections/collections/queue"
 	"github.com/google/uuid"
 )
 
@@ -33,12 +37,18 @@ func Run(args []string) {
 		tasks:  make(map[uuid.UUID]task.Task), // CHECKME connect to database instead of storing tasks in memory?
 		Signal: Signal{ShutdownAPI: make(chan struct{}), ShutdownTaskRunner: make(chan struct{})},
 	}
-	a := Api{
+	b := borzlet.Borzlet{
+		JobQueue: queue.New(),
+		Pods:     make(map[string]model.Pod),
+	}
+	a := api.API{
 		Address: "localhost",
 		Port:    port,
-		Worker:  w,
+		Worker:  w.name,
+		Borzlet: &b,
 	}
-	go w.runTasks()
+	go b.Start()
+	// go w.runTasks()
 	a.Start()
 
 	log.Printf("[%v] exiting", w.name)
@@ -104,7 +114,7 @@ func (w *Worker) GetTasks() []task.Task {
 	return tasks
 }
 
-// CHECKME Dequeue ALL tasks and run them concurrently using goroutines?
+// CHECKME Dequeue ALL tasks and run them concurrently using goroutines? NO
 func (w *Worker) runTasks() {
 	for {
 		select {

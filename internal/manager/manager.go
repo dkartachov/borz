@@ -12,7 +12,10 @@ import (
 
 	"github.com/dkartachov/borz/internal/manager/api"
 	"github.com/dkartachov/borz/internal/manager/database"
+	"github.com/dkartachov/borz/internal/manager/scheduler"
+	"github.com/dkartachov/borz/internal/model"
 	"github.com/dkartachov/borz/internal/task"
+	"github.com/golang-collections/collections/queue"
 	"github.com/google/uuid"
 )
 
@@ -45,16 +48,29 @@ func Run(args []string) {
 		Signal:        Signal{ShutdownAPI: make(chan struct{}), ShutdownTaskScheduler: make(chan struct{})},
 	}
 
-	db := database.Database{Workers: workers}
-
-	a := api.API{
-		Address:  "localhost",
-		Port:     port,
-		Database: &db,
+	sched := scheduler.Scheduler{
+		PodQueue:        queue.New(),
+		PodNameByWorker: make(map[string]string),
+		Workers:         workers,
+		NextWorker:      0,
 	}
 
-	go m.runTaskScheduler()
-	go m.updateTasks(1000)
+	db := database.Database{
+		Workers:     workers,
+		Deployments: make(map[string]model.Deployment),
+		Pods:        make(map[string]model.Pod),
+	}
+
+	a := api.Server{
+		Address:   "localhost",
+		Port:      port,
+		Scheduler: &sched,
+		Database:  &db,
+	}
+
+	// go m.runTaskScheduler()
+	// go m.updateTasks(1000)
+	go sched.Start()
 	a.Start()
 
 	log.Printf("[%s] exiting", m.Name)

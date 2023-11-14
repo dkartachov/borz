@@ -14,6 +14,8 @@ func Router(d *database.Database) *chi.Mux {
 	a := API{router: chi.NewRouter(), database: d}
 	a.router.Get("/", a.getDeploymentsHandler)
 	a.router.Get("/{ID}", a.getDeploymentHandler)
+	a.router.Post("/", a.createDeploymentHandler)
+	a.router.Delete("/{name}", a.deleteDeploymentHandler)
 
 	return a.router
 }
