@@ -37,9 +37,12 @@ func Run(args []string) {
 		tasks:  make(map[uuid.UUID]task.Task), // CHECKME connect to database instead of storing tasks in memory?
 		Signal: Signal{ShutdownAPI: make(chan struct{}), ShutdownTaskRunner: make(chan struct{})},
 	}
+	s := borzlet.Store{
+		Pods: make(map[string]model.Pod),
+	}
 	b := borzlet.Borzlet{
 		JobQueue: queue.New(),
-		Pods:     make(map[string]model.Pod),
+		Store:    &s,
 	}
 	a := api.API{
 		Address: "localhost",

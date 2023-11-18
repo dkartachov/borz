@@ -1,6 +1,8 @@
 package database
 
 import (
+	"sync"
+
 	"github.com/dkartachov/borz/internal/model"
 )
 
@@ -8,6 +10,7 @@ type Database struct {
 	Workers     []string
 	Deployments map[string]model.Deployment
 	Pods        map[string]model.Pod
+	mu          sync.RWMutex
 }
 
 func (d *Database) AddDeployment(dep model.Deployment) {
@@ -34,10 +37,26 @@ func (d *Database) PodNameExists(name string) bool {
 }
 
 func (d *Database) AddPod(p model.Pod) {
+	d.mu.Lock()
 	d.Pods[p.Name] = p
+	d.mu.Unlock()
 }
 
+// func (d *Database) OverwritePods(pods []model.Pod) {
+// 	newPods := make(map[string]model.Pod)
+
+// 	for _, pod := range pods {
+// 		newPods[pod.Name] = pod
+// 	}
+
+// 	d.mu.Lock()
+// 	defer d.mu.Unlock()
+// 	d.Pods = newPods
+// }
+
 func (d *Database) DeletePod(name string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	delete(d.Pods, name)
 }
 

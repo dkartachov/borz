@@ -48,20 +48,22 @@ func Run(args []string) {
 		Signal:        Signal{ShutdownAPI: make(chan struct{}), ShutdownTaskScheduler: make(chan struct{})},
 	}
 
-	sched := scheduler.Scheduler{
-		PodQueue:        queue.New(),
-		PodNameByWorker: make(map[string]string),
-		Workers:         workers,
-		NextWorker:      0,
-	}
-
 	db := database.Database{
 		Workers:     workers,
 		Deployments: make(map[string]model.Deployment),
 		Pods:        make(map[string]model.Pod),
 	}
 
+	sched := scheduler.Scheduler{
+		PodQueue:        queue.New(),
+		PodNameByWorker: make(map[string]string),
+		Workers:         workers,
+		NextWorker:      0,
+		Database:        &db,
+	}
+
 	a := api.Server{
+		Manager:   name,
 		Address:   "localhost",
 		Port:      port,
 		Scheduler: &sched,

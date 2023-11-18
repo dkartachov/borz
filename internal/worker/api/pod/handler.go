@@ -12,6 +12,7 @@ import (
 func (a *API) getPodsHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(a.borzlet.Store.GetPods())
 }
 
 func (a *API) createPodHandler(w http.ResponseWriter, r *http.Request) {
@@ -26,7 +27,7 @@ func (a *API) createPodHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	p.State = model.Scheduled
-	a.borzlet.Pods[p.Name] = p
+	a.borzlet.Store.AddPod(p)
 	a.borzlet.EnqueuePod(p)
 	w.WriteHeader(http.StatusOK)
 }
@@ -38,9 +39,9 @@ func (a *API) deletePodHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pod := a.borzlet.Pods[name]
+	pod := a.borzlet.Store.GetPod(name)
 	pod.State = model.Stopping
-	a.borzlet.Pods[name] = pod
+	a.borzlet.Store.AddPod(pod)
 	a.borzlet.EnqueuePod(pod)
 
 	w.WriteHeader(http.StatusNoContent)

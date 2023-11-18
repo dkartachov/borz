@@ -21,7 +21,7 @@ type Server struct {
 	Scheduler *scheduler.Scheduler
 	Database  *database.Database
 	router    *chi.Mux
-	manager   string
+	Manager   string
 	online    bool
 }
 
@@ -47,7 +47,7 @@ func (s *Server) Start() {
 	// 	cancelServerCtx()
 	// }()
 
-	log.Printf("[%s] server listening on port %d", s.manager, s.Port)
+	log.Printf("[%s] server listening on port %d", s.Manager, s.Port)
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
 	}

@@ -10,14 +10,14 @@ import (
 )
 
 type Borzlet struct {
-	Pods     map[string]model.Pod
 	JobQueue *queue.Queue
+	Store    *Store
 }
 
 func (b *Borzlet) Start() {
 	for {
 		b.RunPods()
-		time.Sleep(time.Millisecond * 500)
+		time.Sleep(time.Millisecond * 1000)
 	}
 }
 
@@ -42,23 +42,22 @@ func (b *Borzlet) RunPods() {
 func (b *Borzlet) startPod(p model.Pod) {
 	log.Printf("starting pod %s", p.Name)
 
-	for i, c := range p.Containers {
+	for _, c := range p.Containers {
 		log.Printf("starting container %v", c.Name)
 		d := docker.Docker{Image: c.Image}
 		containerID, err := d.Start()
 		if err != nil {
 			p.State = model.Error
-			b.Pods[p.Name] = p
+			b.Store.AddPod(p)
 			log.Printf("error starting container: %v", err)
 			return
 		}
 
-		c.ID = containerID
-		b.Pods[p.Name].Containers[i] = c
+		b.Store.AddContainerID(p.Name, c.Name, containerID)
 	}
 
 	p.State = model.Running
-	b.Pods[p.Name] = p
+	b.Store.AddPod(p)
 }
 
 func (b *Borzlet) stopPod(pod model.Pod) {
@@ -69,11 +68,14 @@ func (b *Borzlet) stopPod(pod model.Pod) {
 		d := docker.Docker{ContainerID: c.ID}
 		if err := d.Stop(); err != nil {
 			pod.State = model.Error
-			b.Pods[pod.Name] = pod
+			b.Store.AddPod(pod)
 			log.Printf("error stopping container: %v", err)
 			return
 		}
 	}
 
-	delete(b.Pods, pod.Name)
+	pod.State = model.Stopped
+	b.Store.AddPod(pod)
 }
+
+// TODO add some kind of purge function that runs every few minutes to purge any stopped pods from memory

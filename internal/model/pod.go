@@ -7,6 +7,7 @@ const (
 	Scheduled State = "Scheduled"
 	Running   State = "Running"
 	Stopping  State = "Stopping"
+	Stopped   State = "Stopped"
 	Error     State = "Error"
 )
 
@@ -28,7 +29,8 @@ func ValidStateTransition(source State, dest State) bool {
 		Pending:   {Pending, Scheduled, Error},
 		Scheduled: {Scheduled, Running, Error},
 		Running:   {Running, Stopping, Error},
-		Stopping:  {Stopping, Error},
+		Stopping:  {Stopping, Stopped, Error},
+		Stopped:   {Stopped, Error},
 		Error:     {Error},
 	}
 

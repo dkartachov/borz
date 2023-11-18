@@ -7,8 +7,10 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"sync"
 	"time"
 
+	"github.com/dkartachov/borz/internal/manager/database"
 	"github.com/dkartachov/borz/internal/model"
 	"github.com/golang-collections/collections/queue"
 )
@@ -18,13 +20,14 @@ type Scheduler struct {
 	PodNameByWorker map[string]string
 	Workers         []string // addresses
 	NextWorker      int
+	Database        *database.Database
 }
 
 func (s *Scheduler) Start() {
 	for {
-		s.UpdateDatabase()
+		s.UpdatePods()
 		s.SchedulePods()
-		time.Sleep(time.Millisecond * 500)
+		time.Sleep(time.Millisecond * 1000)
 	}
 }
 
@@ -89,7 +92,46 @@ func (s *Scheduler) SchedulePods() {
 	}
 }
 
-// TODO Fetch pods from workers to update database state
-func (s *Scheduler) UpdateDatabase() {
+// CHECKME should this be part of the pod controller?
+func (s *Scheduler) UpdatePods() {
+	var wg sync.WaitGroup
+
+	// fetch pods from all workers asynchronously
+	for _, w := range s.Workers {
+		wg.Add(1)
+
+		go func(worker string) {
+			defer wg.Done()
+
+			resp, err := http.Get(fmt.Sprintf("%s/pods", worker))
+			if err != nil {
+				log.Printf("error connecting to %s: %v", worker, err)
+				return
+			}
+
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusOK {
+				log.Printf("error getting pods from %s: %v", worker, err)
+				return
+			}
+
+			pods := []model.Pod{}
+			json.NewDecoder(resp.Body).Decode(&pods)
+
+			for _, p := range pods {
+				switch p.State {
+				case model.Stopped:
+					// TODO delete s.PodNameByWorker as well
+					s.Database.DeletePod(p.Name)
+				default:
+					s.Database.AddPod(p)
+				}
+			}
+
+		}(w)
+	}
+
+	wg.Wait()
 
 }
