@@ -1,9 +1,11 @@
 package api
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/dkartachov/borz/internal/manager/api/deployment"
 	"github.com/dkartachov/borz/internal/manager/api/pod"
@@ -20,9 +22,11 @@ type Server struct {
 	Port      int
 	Scheduler *scheduler.Scheduler
 	Database  *database.Database
-	router    *chi.Mux
 	Manager   string
-	online    bool
+
+	router   *chi.Mux
+	shutdown chan struct{}
+	online   bool
 }
 
 func (s *Server) Start() {
@@ -34,28 +38,34 @@ func (s *Server) Start() {
 
 	// sig := make(chan os.Signal, 1)
 	// signal.Notify(sig, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
-	// serverCtx, cancelServerCtx := context.WithCancel(context.Background())
+	serverCtx, cancelServerCtx := context.WithCancel(context.Background())
 
-	// go func() {
-	// 	<-a.Manager.Signal.ShutdownAPI
-	// 	log.Printf("[%s] shutting down API server", a.Manager.Name)
-	// 	shutdownCtx, cancelShutdownCtx := context.WithTimeout(serverCtx, time.Second*60)
-	// 	defer cancelShutdownCtx()
-	// 	if err := server.Shutdown(shutdownCtx); err != nil {
-	// 		log.Fatalf("[%s] shutdown timed out, forcing exit: %v", a.Manager.Name, err)
-	// 	}
-	// 	cancelServerCtx()
-	// }()
+	go func() {
+		<-s.shutdown
+
+		log.Printf("[%s] shutting down server", s.Manager)
+
+		shutdownCtx, cancelShutdownCtx := context.WithTimeout(serverCtx, time.Second*60)
+		defer cancelShutdownCtx()
+
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			log.Fatalf("[%s] shutdown timed out, forcing exit: %v", s.Manager, err)
+		}
+
+		cancelServerCtx()
+	}()
 
 	log.Printf("[%s] server listening on port %d", s.Manager, s.Port)
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
 	}
 
-	// <-serverCtx.Done()
+	// wait for server to shutdown via cancelServerCtx()
+	<-serverCtx.Done()
 }
 
 func (s *Server) init() {
+	s.shutdown = make(chan struct{})
 	s.router = chi.NewRouter()
 	// TODO add middleware that checks if a shutdown request was recently received
 	// and if so, respond with proper status code
@@ -74,6 +84,12 @@ func (s *Server) init() {
 	s.router.Mount("/deployments", deployment.Router(s.Database))
 	s.router.Mount("/workers", worker.Router(s.Database))
 	s.router.Mount("/pods", pod.Router(s.Database, s.Scheduler))
+	// CHECKME Should this be a DELETE endpoint? Should this be moved somewhere else?
+	s.router.Delete("/shutdown", func(w http.ResponseWriter, r *http.Request) {
+		s.online = false
+		// TODO send shutdown requests to workers before closing channel
+		close(s.shutdown)
+	})
 
 	s.online = true
 }
