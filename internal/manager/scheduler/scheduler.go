@@ -16,11 +16,10 @@ import (
 )
 
 type Scheduler struct {
+	Database        *database.Database
 	PodQueue        *queue.Queue
 	PodNameByWorker map[string]string
-	Workers         []string // addresses
 	NextWorker      int
-	Database        *database.Database
 }
 
 func (s *Scheduler) Start() {
@@ -39,7 +38,7 @@ func (s *Scheduler) SendPodForDeletion(podName string) (int, string) {
 	worker := s.PodNameByWorker[podName]
 	client := http.Client{}
 
-	req, err := http.NewRequest("DELETE", fmt.Sprintf("%s/pods/%s", worker, podName), nil)
+	req, err := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/pods/%s", worker, podName), nil)
 	if err != nil {
 		msg := "error creating DELETE request"
 		log.Print(msg, err)
@@ -67,11 +66,11 @@ func (s *Scheduler) SendPodForDeletion(podName string) (int, string) {
 
 // TODO Need algorithm for selecting workers. This is a first pass round-robin approach.
 func (s *Scheduler) selectWorker() string {
-	if s.NextWorker == len(s.Workers)-1 {
+	if s.NextWorker == len(s.Database.GetWorkers())-1 {
 		s.NextWorker = 0
 	}
 
-	return s.Workers[s.NextWorker]
+	return s.Database.GetWorkers()[s.NextWorker]
 }
 
 func (s *Scheduler) SchedulePods() {
@@ -97,7 +96,7 @@ func (s *Scheduler) UpdatePods() {
 	var wg sync.WaitGroup
 
 	// fetch pods from all workers asynchronously
-	for _, w := range s.Workers {
+	for _, w := range s.Database.GetWorkers() {
 		wg.Add(1)
 
 		go func(worker string) {

@@ -87,8 +87,37 @@ func (s *Server) init() {
 	// CHECKME Should this be a DELETE endpoint? Should this be moved somewhere else?
 	s.router.Delete("/shutdown", func(w http.ResponseWriter, r *http.Request) {
 		s.online = false
-		// TODO send shutdown requests to workers before closing channel
-		close(s.shutdown)
+
+		go func() {
+			client := http.Client{}
+
+			// CHECKME send all shutdown requests concurrently using goroutines?
+			for _, worker := range s.Database.GetWorkers() {
+				req, err := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/shutdown", worker), nil)
+				if err != nil {
+					log.Printf("error creating shutdown request for worker %s", worker)
+					continue
+				}
+
+				resp, err := client.Do(req)
+				if err != nil {
+					log.Printf("error connecting to worker %s", worker)
+					continue
+				}
+
+				// CHECKME what to do if worker fails to shutdown?
+				if resp.StatusCode != http.StatusOK {
+					log.Printf("error shutting down worker %s", worker)
+				}
+
+				resp.Body.Close()
+			}
+
+			close(s.shutdown)
+		}()
+
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("graceful shutdown initiated"))
 	})
 
 	s.online = true

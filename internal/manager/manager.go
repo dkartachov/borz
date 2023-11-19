@@ -8,7 +8,6 @@ import (
 	"github.com/dkartachov/borz/internal/manager/api"
 	"github.com/dkartachov/borz/internal/manager/database"
 	"github.com/dkartachov/borz/internal/manager/scheduler"
-	"github.com/dkartachov/borz/internal/model"
 	"github.com/golang-collections/collections/queue"
 )
 
@@ -17,18 +16,17 @@ func Run(args []string) {
 	port, _ := strconv.Atoi(args[1])
 	workers := strings.Split(args[2], ",")
 
-	db := database.Database{
-		Workers:     workers,
-		Deployments: make(map[string]model.Deployment),
-		Pods:        make(map[string]model.Pod),
-	}
+	db := database.Database{}
+	db.Init()
+	db.AddWorkers(workers)
+
 	sched := scheduler.Scheduler{
 		PodQueue:        queue.New(),
 		PodNameByWorker: make(map[string]string),
-		Workers:         workers,
 		NextWorker:      0,
 		Database:        &db,
 	}
+
 	server := api.Server{
 		Manager:   name,
 		Address:   "localhost",

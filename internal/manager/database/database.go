@@ -7,20 +7,35 @@ import (
 )
 
 type Database struct {
-	Workers     []string
-	Deployments map[string]model.Deployment
-	Pods        map[string]model.Pod
-	mu          sync.RWMutex
+	workers     []string
+	deployments map[string]model.Deployment
+	pods        map[string]model.Pod
+
+	mu sync.RWMutex
+}
+
+func (d *Database) Init() {
+	d.workers = []string{}
+	d.deployments = make(map[string]model.Deployment)
+	d.pods = make(map[string]model.Pod)
+}
+
+func (d *Database) GetWorkers() []string {
+	return d.workers
+}
+
+func (d *Database) AddWorkers(workers []string) {
+	d.workers = workers
 }
 
 func (d *Database) AddDeployment(dep model.Deployment) {
-	d.Deployments[dep.Name] = dep
+	d.deployments[dep.Name] = dep
 }
 
 func (d *Database) GetDeployments() []model.Deployment {
 	deployments := []model.Deployment{}
 
-	for _, d := range d.Deployments {
+	for _, d := range d.deployments {
 		deployments = append(deployments, d)
 	}
 
@@ -28,42 +43,30 @@ func (d *Database) GetDeployments() []model.Deployment {
 }
 
 func (d *Database) DeleteDeployment(name string) {
-	delete(d.Deployments, name)
+	delete(d.deployments, name)
 }
 
 func (d *Database) PodNameExists(name string) bool {
-	_, ok := d.Pods[name]
+	_, ok := d.pods[name]
 	return ok
 }
 
 func (d *Database) AddPod(p model.Pod) {
 	d.mu.Lock()
-	d.Pods[p.Name] = p
+	d.pods[p.Name] = p
 	d.mu.Unlock()
 }
-
-// func (d *Database) OverwritePods(pods []model.Pod) {
-// 	newPods := make(map[string]model.Pod)
-
-// 	for _, pod := range pods {
-// 		newPods[pod.Name] = pod
-// 	}
-
-// 	d.mu.Lock()
-// 	defer d.mu.Unlock()
-// 	d.Pods = newPods
-// }
 
 func (d *Database) DeletePod(name string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	delete(d.Pods, name)
+	delete(d.pods, name)
 }
 
 func (d *Database) GetPods() []model.Pod {
 	pods := []model.Pod{}
 
-	for _, p := range d.Pods {
+	for _, p := range d.pods {
 		pods = append(pods, p)
 	}
 
@@ -71,5 +74,5 @@ func (d *Database) GetPods() []model.Pod {
 }
 
 func (d *Database) GetPod(name string) model.Pod {
-	return d.Pods[name]
+	return d.pods[name]
 }

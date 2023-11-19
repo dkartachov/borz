@@ -1,9 +1,11 @@
 package api
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/dkartachov/borz/internal/worker/api/pod"
 	"github.com/dkartachov/borz/internal/worker/borzlet"
@@ -11,46 +13,59 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 )
 
-type API struct {
+type Server struct {
 	Address string
 	Port    int
 	Worker  string
 	Borzlet *borzlet.Borzlet
-	router  *chi.Mux
+
+	router   *chi.Mux
+	shutdown chan struct{}
 }
 
-func (a *API) Start() {
-	a.init()
+func (s *Server) Start() {
+	s.init()
 	server := http.Server{
-		Addr:    fmt.Sprintf("%s:%d", a.Address, a.Port),
-		Handler: a.router,
+		Addr:    fmt.Sprintf("%s:%d", s.Address, s.Port),
+		Handler: s.router,
 	}
 
 	// sig := make(chan os.Signal, 1)
 	// signal.Notify(sig, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
-	// serverCtx, cancelServerCtx := context.WithCancel(context.Background())
+	serverCtx, cancelServerCtx := context.WithCancel(context.Background())
 
-	// go func() {
-	// 	<-a.Worker.Signal.ShutdownAPI
-	// 	log.Printf("[%s] shutting down API server", a.Worker.name)
-	// 	shutdownCtx, cancelShutdownCtx := context.WithTimeout(serverCtx, time.Second*60)
-	// 	defer cancelShutdownCtx()
-	// 	if err := server.Shutdown(shutdownCtx); err != nil {
-	// 		log.Fatalf("[%s] shutdown timed out, forcing exit: %v", a.Worker.name, err)
-	// 	}
-	// 	cancelServerCtx()
-	// }()
+	go func() {
+		<-s.shutdown
 
-	log.Printf("[%s] server listening on port %d", a.Worker, a.Port)
+		log.Printf("[%s] shutting down API server", s.Worker)
+
+		shutdownCtx, cancelShutdownCtx := context.WithTimeout(serverCtx, time.Second*60)
+		defer cancelShutdownCtx()
+
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			log.Fatalf("[%s] shutdown timed out, forcing exit: %v", s.Worker, err)
+		}
+
+		cancelServerCtx()
+	}()
+
+	log.Printf("[%s] server listening on port %d", s.Worker, s.Port)
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
 	}
 
-	// <-serverCtx.Done()
+	<-serverCtx.Done()
 }
 
-func (a *API) init() {
-	a.router = chi.NewRouter()
-	a.router.Use(middleware.Logger)
-	a.router.Mount("/pods", pod.Router(a.Borzlet))
+func (s *Server) init() {
+	s.shutdown = make(chan struct{})
+	s.router = chi.NewRouter()
+	s.router.Use(middleware.Logger)
+	s.router.Mount("/pods", pod.Router(s.Borzlet))
+	// CHECKME Should this be a DELETE endpoint? Should this be moved somewhere else?
+	s.router.Delete("/shutdown", func(w http.ResponseWriter, r *http.Request) {
+		// TODO stop all pods before closing channel
+		close(s.shutdown)
+		w.WriteHeader(http.StatusOK)
+	})
 }

@@ -21,7 +21,7 @@ func Run(args []string) {
 		JobQueue: queue.New(),
 		Store:    &s,
 	}
-	server := api.API{
+	server := api.Server{
 		Address: "localhost",
 		Port:    port,
 		Worker:  name,
