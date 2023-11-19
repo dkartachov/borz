@@ -7,14 +7,18 @@ import (
 )
 
 type Store struct {
-	Pods map[string]model.Pod
+	pods map[string]model.Pod
 	mu   sync.RWMutex
+}
+
+func (s *Store) Init() {
+	s.pods = make(map[string]model.Pod)
 }
 
 func (s *Store) AddPod(p model.Pod) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.Pods[p.Name] = p
+	s.pods[p.Name] = p
 }
 
 func (s *Store) AddContainerID(podName string, containerName string, containerID string) {
@@ -35,7 +39,7 @@ func (s *Store) GetPods() []model.Pod {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	for _, p := range s.Pods {
+	for _, p := range s.pods {
 		pods = append(pods, p)
 	}
 
@@ -45,12 +49,12 @@ func (s *Store) GetPods() []model.Pod {
 func (s *Store) GetPod(name string) model.Pod {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	pod := s.Pods[name]
+	pod := s.pods[name]
 	return pod
 }
 
 func (s *Store) DeletePod(name string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	delete(s.Pods, name)
+	delete(s.pods, name)
 }

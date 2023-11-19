@@ -4,7 +4,6 @@ import (
 	"log"
 	"strconv"
 
-	"github.com/dkartachov/borz/internal/model"
 	"github.com/dkartachov/borz/internal/worker/api"
 	"github.com/dkartachov/borz/internal/worker/borzlet"
 	"github.com/golang-collections/collections/queue"
@@ -14,9 +13,9 @@ func Run(args []string) {
 	name := args[0]
 	port, _ := strconv.Atoi(args[1])
 
-	s := borzlet.Store{
-		Pods: make(map[string]model.Pod),
-	}
+	s := borzlet.Store{}
+	s.Init()
+
 	b := borzlet.Borzlet{
 		JobQueue: queue.New(),
 		Store:    &s,
