@@ -64,7 +64,13 @@ func (s *Server) init() {
 	s.router.Mount("/pods", pod.Router(s.Borzlet))
 	// CHECKME Should this be a DELETE endpoint? Should this be moved somewhere else?
 	s.router.Delete("/shutdown", func(w http.ResponseWriter, r *http.Request) {
-		// TODO stop all pods before closing channel
+		err := s.Borzlet.StopPods(context.Background())
+		if err != nil {
+			log.Printf("error stopping pods: %v", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
 		close(s.shutdown)
 		w.WriteHeader(http.StatusOK)
 	})

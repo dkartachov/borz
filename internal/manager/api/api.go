@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/dkartachov/borz/internal/manager/api/deployment"
@@ -86,33 +87,45 @@ func (s *Server) init() {
 	s.router.Mount("/pods", pod.Router(s.Database, s.Scheduler))
 	// CHECKME Should this be a DELETE endpoint? Should this be moved somewhere else?
 	s.router.Delete("/shutdown", func(w http.ResponseWriter, r *http.Request) {
+		// TODO shut down scheduler before server
 		s.online = false
 
 		go func() {
-			client := http.Client{}
+			// TODO create one global reusable client (?)
+			client := &http.Client{
+				Timeout: 0,
+			}
+			var wg sync.WaitGroup
 
-			// CHECKME send all shutdown requests concurrently using goroutines?
 			for _, worker := range s.Database.GetWorkers() {
-				req, err := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/shutdown", worker), nil)
-				if err != nil {
-					log.Printf("error creating shutdown request for worker %s", worker)
-					continue
-				}
+				wg.Add(1)
 
-				resp, err := client.Do(req)
-				if err != nil {
-					log.Printf("error connecting to worker %s", worker)
-					continue
-				}
+				go func(client *http.Client, worker string) {
+					req, err := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/shutdown", worker), nil)
+					if err != nil {
+						log.Printf("error creating shutdown request for worker %s", worker)
+						wg.Done()
+						return
+					}
 
-				// CHECKME what to do if worker fails to shutdown?
-				if resp.StatusCode != http.StatusOK {
-					log.Printf("error shutting down worker %s", worker)
-				}
+					resp, err := client.Do(req)
+					if err != nil {
+						log.Printf("error connecting to worker %s", worker)
+						wg.Done()
+						return
+					}
 
-				resp.Body.Close()
+					// CHECKME what to do if worker fails to shutdown?
+					if resp.StatusCode != http.StatusOK {
+						log.Printf("error shutting down worker %s", worker)
+					}
+
+					resp.Body.Close()
+					wg.Done()
+				}(client, worker)
 			}
 
+			wg.Wait()
 			close(s.shutdown)
 		}()
 
