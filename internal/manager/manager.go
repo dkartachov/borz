@@ -2,13 +2,14 @@ package manager
 
 import (
 	"log"
+	"net/http"
 	"strconv"
 	"strings"
 
 	"github.com/dkartachov/borz/internal/manager/api"
 	"github.com/dkartachov/borz/internal/manager/database"
 	"github.com/dkartachov/borz/internal/manager/scheduler"
-	"github.com/golang-collections/collections/queue"
+	"github.com/dkartachov/borz/internal/model"
 )
 
 func Run(args []string) {
@@ -21,10 +22,12 @@ func Run(args []string) {
 	db.AddWorkers(workers)
 
 	sched := scheduler.Scheduler{
-		PodQueue:        queue.New(),
+		// TODO make channel size configurable
+		PodQueue:        make(chan model.Pod, 1),
 		PodNameByWorker: make(map[string]string),
 		NextWorker:      0,
 		Database:        &db,
+		Client:          &http.Client{},
 	}
 
 	server := api.Server{

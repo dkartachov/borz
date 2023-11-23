@@ -12,26 +12,34 @@ import (
 
 	"github.com/dkartachov/borz/internal/manager/database"
 	"github.com/dkartachov/borz/internal/model"
-	"github.com/golang-collections/collections/queue"
 )
 
 type Scheduler struct {
-	Database        *database.Database
-	PodQueue        *queue.Queue
+	Database *database.Database
+	// TODO improve queue by abstracting the tasks being processed (https://mrkaran.dev/posts/job-queue-golang/)
+	PodQueue        chan model.Pod
 	PodNameByWorker map[string]string
 	NextWorker      int
+	Client          *http.Client
+
+	shutdown chan struct{}
 }
 
 func (s *Scheduler) Start() {
+	go s.SchedulePods()
 	for {
 		s.UpdatePods()
-		s.SchedulePods()
 		time.Sleep(time.Millisecond * 1000)
 	}
 }
 
-func (s *Scheduler) EnqueuePod(p model.Pod) {
-	s.PodQueue.Enqueue(p)
+func (s *Scheduler) EnqueuePod(p model.Pod) bool {
+	select {
+	case s.PodQueue <- p:
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *Scheduler) SendPodForDeletion(podName string) (int, string) {
@@ -64,30 +72,16 @@ func (s *Scheduler) SendPodForDeletion(podName string) (int, string) {
 	return statusCode, string(body)
 }
 
-// TODO Need algorithm for selecting workers. This is a first pass round-robin approach.
-func (s *Scheduler) selectWorker() string {
-	if s.NextWorker == len(s.Database.GetWorkers())-1 {
-		s.NextWorker = 0
-	}
-
-	return s.Database.GetWorkers()[s.NextWorker]
-}
-
 func (s *Scheduler) SchedulePods() {
-	for s.PodQueue.Len() > 0 {
-		pi := s.PodQueue.Dequeue()
-		p := pi.(model.Pod)
-		w := s.selectWorker()
-		pBytes, _ := json.Marshal(p)
-
-		resp, err := http.Post(fmt.Sprintf("%s/pods", w), "application/json", bytes.NewBuffer(pBytes))
-		if err != nil {
-			log.Printf("error connecting to worker %s", w)
-			continue
+	for {
+		select {
+		case p := <-s.PodQueue:
+			go s.schedulePod(p)
+		case <-s.shutdown:
+			// TODO implement shutdown
+			// 1. Stop queue from receiving new tasks
+			// 2. Flush queue of tasks
 		}
-
-		s.PodNameByWorker[p.Name] = w
-		resp.Body.Close()
 	}
 }
 
@@ -133,4 +127,38 @@ func (s *Scheduler) UpdatePods() {
 
 	wg.Wait()
 
+}
+
+// TODO Need algorithm for selecting workers. This is a first pass round-robin approach.
+func (s *Scheduler) selectWorker() string {
+	if s.NextWorker == len(s.Database.GetWorkers())-1 {
+		s.NextWorker = 0
+	}
+
+	return s.Database.GetWorkers()[s.NextWorker]
+}
+
+func (s *Scheduler) schedulePod(p model.Pod) {
+	w := s.selectWorker()
+	pBytes, _ := json.Marshal(p)
+
+	resp, err := s.Client.Post(fmt.Sprintf("%s/pods", w), "application/json", bytes.NewBuffer(pBytes))
+	if err != nil {
+		log.Printf("error connecting to worker %s", w)
+		return
+	}
+
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("error sending pod to worker %s", w)
+		// TODO add max retries so pod doesn't get requeued indefinitely
+		ok := s.EnqueuePod(p)
+		if !ok {
+			log.Printf("error requeuing pod %s: job queue full", p.Name)
+		}
+		return
+	}
+
+	s.PodNameByWorker[p.Name] = w
 }

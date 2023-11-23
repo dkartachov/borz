@@ -4,9 +4,9 @@ import (
 	"log"
 	"strconv"
 
+	"github.com/dkartachov/borz/internal/model"
 	"github.com/dkartachov/borz/internal/worker/api"
 	"github.com/dkartachov/borz/internal/worker/borzlet"
-	"github.com/golang-collections/collections/queue"
 )
 
 func Run(args []string) {
@@ -17,7 +17,8 @@ func Run(args []string) {
 	s.Init()
 
 	b := borzlet.Borzlet{
-		JobQueue: queue.New(),
+		// TODO make channel size configurable
+		JobQueue: make(chan model.Pod, 10),
 		Store:    &s,
 	}
 	server := api.Server{

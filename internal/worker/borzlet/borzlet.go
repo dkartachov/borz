@@ -8,47 +8,56 @@ import (
 
 	"github.com/dkartachov/borz/internal/docker"
 	"github.com/dkartachov/borz/internal/model"
-	"github.com/golang-collections/collections/queue"
 )
 
 type Borzlet struct {
-	JobQueue *queue.Queue
+	// TODO improve queue by abstracting the tasks being processed (https://mrkaran.dev/posts/job-queue-golang/)
+	JobQueue chan model.Pod
 	Store    *Store
+
+	shutdown chan struct{}
 }
 
 func (b *Borzlet) Start() {
-	for {
-		b.RunPods(context.Background())
-		time.Sleep(time.Millisecond * 1000)
+	b.RunPods()
+}
+
+func (b *Borzlet) EnqueuePod(p model.Pod) bool {
+	select {
+	case b.JobQueue <- p:
+		return true
+	default:
+		return false
 	}
 }
 
-func (b *Borzlet) EnqueuePod(p model.Pod) {
-	b.JobQueue.Enqueue(p)
+func (b *Borzlet) RunPods() {
+	for {
+		select {
+		case p := <-b.JobQueue:
+			go b.runPod(p)
+		case <-b.shutdown:
+			// TODO implement shutdown
+			// 1. Flush queue
+		}
+	}
 }
 
-func (b *Borzlet) RunPods(ctx context.Context) {
-	// CHECKME Should probably run jobs concurrently.
-	// Right now a problematic pod will prevent other pods from being scheduled.
-	// Use a channel instead of queue?
-	for b.JobQueue.Len() > 0 {
-		pi := b.JobQueue.Dequeue()
-		p := pi.(model.Pod)
-		// CHECKME Should startPod and stopPod have different timeouts instead?
-		ctx, cancelCtx := context.WithTimeout(ctx, 5*time.Minute) // default max 5 minutes to start/stop pods
-		defer cancelCtx()
+func (b *Borzlet) runPod(p model.Pod) {
+	// CHECKME Should startPod and stopPod have different timeouts instead?
+	ctx, cancelCtx := context.WithTimeout(context.Background(), 5*time.Minute) // default max 5 minutes to start/stop pods
+	defer cancelCtx()
 
-		switch p.State {
-		case model.Scheduled:
-			err := b.startPod(ctx, p)
-			if err != nil {
-				log.Printf("error starting pod %s: %v", p.Name, err)
-			}
-		case model.Stopping:
-			err := b.stopPod(ctx, p)
-			if err != nil {
-				log.Printf("error stopping pod %s: %v", p.Name, err)
-			}
+	switch p.State {
+	case model.Scheduled:
+		err := b.startPod(ctx, p)
+		if err != nil {
+			log.Printf("error starting pod %s: %v", p.Name, err)
+		}
+	case model.Stopping:
+		err := b.stopPod(ctx, p)
+		if err != nil {
+			log.Printf("error stopping pod %s: %v", p.Name, err)
 		}
 	}
 }
@@ -56,6 +65,7 @@ func (b *Borzlet) RunPods(ctx context.Context) {
 func (b *Borzlet) startPod(ctx context.Context, p model.Pod) error {
 	log.Printf("starting pod %s", p.Name)
 
+	// CHECKME start containers concurrently?
 	for _, c := range p.Containers {
 		log.Printf("starting container %v", c.Name)
 		d := docker.Docker{Image: c.Image}
@@ -100,12 +110,14 @@ func (b *Borzlet) StopPods(ctx context.Context) error {
 	defer cancelCtx()
 
 	stoppedPods := make(chan model.Pod, len(b.Store.GetPods()))
+	failedPods := make(chan model.Pod, len(b.Store.GetPods()))
 
 	for _, p := range b.Store.GetPods() {
 		go func(pod model.Pod) {
 			err := b.stopPod(context.Background(), pod)
 			if err != nil {
 				log.Printf("error stopping pod %s: %v", pod.Name, err)
+				failedPods <- pod
 				return
 			}
 

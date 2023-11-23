@@ -27,8 +27,13 @@ func (a *API) createPodHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	p.State = model.Scheduled
+	ok := a.borzlet.EnqueuePod(p)
+	if !ok {
+		http.Error(w, "pod queue full", http.StatusUnprocessableEntity)
+		return
+	}
+
 	a.borzlet.Store.AddPod(p)
-	a.borzlet.EnqueuePod(p)
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -41,8 +46,13 @@ func (a *API) deletePodHandler(w http.ResponseWriter, r *http.Request) {
 
 	pod := a.borzlet.Store.GetPod(name)
 	pod.State = model.Stopping
-	a.borzlet.Store.AddPod(pod)
-	a.borzlet.EnqueuePod(pod)
 
+	ok := a.borzlet.EnqueuePod(pod)
+	if !ok {
+		http.Error(w, "pod queue full", http.StatusUnprocessableEntity)
+		return
+	}
+
+	a.borzlet.Store.AddPod(pod)
 	w.WriteHeader(http.StatusNoContent)
 }

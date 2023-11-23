@@ -20,11 +20,17 @@ func (a *API) createPodHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	pod.State = model.Pending
+	ok := a.scheduler.EnqueuePod(pod)
+	if !ok {
+		// CHECKME is this the proper status code to respond with?
+		http.Error(w, "job queue full", http.StatusUnprocessableEntity)
+		return
+	}
+
 	a.database.AddPod(pod)
-	a.scheduler.EnqueuePod(pod)
 
 	w.Header().Set("content-type", "application/json")
-	w.WriteHeader(http.StatusOK)
+	w.WriteHeader(http.StatusProcessing)
 	json.NewEncoder(w).Encode(pod)
 }
 
