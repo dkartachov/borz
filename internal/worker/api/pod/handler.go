@@ -2,6 +2,7 @@ package pod
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 
@@ -27,9 +28,9 @@ func (a *API) createPodHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	p.State = model.Scheduled
-	ok := a.borzlet.EnqueuePod(p)
-	if !ok {
-		http.Error(w, "pod queue full", http.StatusUnprocessableEntity)
+	err := a.borzlet.EnqueuePod(p)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("error queuing pod: %v", err), http.StatusUnprocessableEntity)
 		return
 	}
 
@@ -47,9 +48,9 @@ func (a *API) deletePodHandler(w http.ResponseWriter, r *http.Request) {
 	pod := a.borzlet.Store.GetPod(name)
 	pod.State = model.Stopping
 
-	ok := a.borzlet.EnqueuePod(pod)
-	if !ok {
-		http.Error(w, "pod queue full", http.StatusUnprocessableEntity)
+	err := a.borzlet.EnqueuePod(pod)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("error queuing pod: %v", err), http.StatusUnprocessableEntity)
 		return
 	}
 

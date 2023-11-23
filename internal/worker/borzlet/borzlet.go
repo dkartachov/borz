@@ -14,31 +14,39 @@ type Borzlet struct {
 	// TODO improve queue by abstracting the tasks being processed (https://mrkaran.dev/posts/job-queue-golang/)
 	JobQueue chan model.Pod
 	Store    *Store
+	Shutdown chan struct{}
 
-	shutdown chan struct{}
+	queueOnline bool
 }
 
 func (b *Borzlet) Start() {
 	b.RunPods()
 }
 
-func (b *Borzlet) EnqueuePod(p model.Pod) bool {
+func (b *Borzlet) EnqueuePod(p model.Pod) error {
+	if !b.queueOnline {
+		return fmt.Errorf("queue offline")
+	}
+
 	select {
 	case b.JobQueue <- p:
-		return true
+		return nil
 	default:
-		return false
+		return fmt.Errorf("queue full")
 	}
 }
 
 func (b *Borzlet) RunPods() {
+	b.queueOnline = true
+
 	for {
 		select {
 		case p := <-b.JobQueue:
 			go b.runPod(p)
-		case <-b.shutdown:
-			// TODO implement shutdown
-			// 1. Flush queue
+		case <-b.Shutdown:
+			// CHECKME should channel be "flushed"?
+			b.queueOnline = false
+			return
 		}
 	}
 }

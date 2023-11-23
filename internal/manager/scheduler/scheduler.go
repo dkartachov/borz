@@ -18,6 +18,7 @@ type Scheduler struct {
 	Database *database.Database
 	// TODO improve queue by abstracting the tasks being processed (https://mrkaran.dev/posts/job-queue-golang/)
 	PodQueue        chan model.Pod
+	queueOnline     bool
 	PodNameByWorker map[string]string
 	NextWorker      int
 	Client          *http.Client
@@ -26,19 +27,22 @@ type Scheduler struct {
 }
 
 func (s *Scheduler) Start() {
-	go s.SchedulePods()
-	for {
-		s.UpdatePods()
-		time.Sleep(time.Millisecond * 1000)
-	}
+	s.queueOnline = true
+
+	go s.schedulePods()
+	s.updatePods(1000)
 }
 
-func (s *Scheduler) EnqueuePod(p model.Pod) bool {
+func (s *Scheduler) EnqueuePod(p model.Pod) error {
+	if !s.queueOnline {
+		return fmt.Errorf("queue offline")
+	}
+
 	select {
 	case s.PodQueue <- p:
-		return true
+		return nil
 	default:
-		return false
+		return fmt.Errorf("queue full")
 	}
 }
 
@@ -72,70 +76,17 @@ func (s *Scheduler) SendPodForDeletion(podName string) (int, string) {
 	return statusCode, string(body)
 }
 
-func (s *Scheduler) SchedulePods() {
+func (s *Scheduler) schedulePods() {
 	for {
 		select {
 		case p := <-s.PodQueue:
 			go s.schedulePod(p)
 		case <-s.shutdown:
-			// TODO implement shutdown
-			// 1. Stop queue from receiving new tasks
-			// 2. Flush queue of tasks
+			// CHECKME should channel be "flushed"?
+			s.queueOnline = false
+			return
 		}
 	}
-}
-
-// CHECKME should this be part of the pod controller?
-func (s *Scheduler) UpdatePods() {
-	var wg sync.WaitGroup
-
-	// fetch pods from all workers asynchronously
-	for _, w := range s.Database.GetWorkers() {
-		wg.Add(1)
-
-		go func(worker string) {
-			defer wg.Done()
-
-			resp, err := http.Get(fmt.Sprintf("%s/pods", worker))
-			if err != nil {
-				log.Printf("error connecting to %s: %v", worker, err)
-				return
-			}
-
-			defer resp.Body.Close()
-
-			if resp.StatusCode != http.StatusOK {
-				log.Printf("error getting pods from %s: %v", worker, err)
-				return
-			}
-
-			pods := []model.Pod{}
-			json.NewDecoder(resp.Body).Decode(&pods)
-
-			for _, p := range pods {
-				switch p.State {
-				case model.Stopped:
-					// TODO delete s.PodNameByWorker as well
-					s.Database.DeletePod(p.Name)
-				default:
-					s.Database.AddPod(p)
-				}
-			}
-
-		}(w)
-	}
-
-	wg.Wait()
-
-}
-
-// TODO Need algorithm for selecting workers. This is a first pass round-robin approach.
-func (s *Scheduler) selectWorker() string {
-	if s.NextWorker == len(s.Database.GetWorkers())-1 {
-		s.NextWorker = 0
-	}
-
-	return s.Database.GetWorkers()[s.NextWorker]
 }
 
 func (s *Scheduler) schedulePod(p model.Pod) {
@@ -153,12 +104,66 @@ func (s *Scheduler) schedulePod(p model.Pod) {
 	if resp.StatusCode != http.StatusOK {
 		log.Printf("error sending pod to worker %s", w)
 		// TODO add max retries so pod doesn't get requeued indefinitely
-		ok := s.EnqueuePod(p)
-		if !ok {
-			log.Printf("error requeuing pod %s: job queue full", p.Name)
+		err := s.EnqueuePod(p)
+		if err != nil {
+			log.Printf("error requeuing pod %s: %v", p.Name, err)
 		}
 		return
 	}
 
 	s.PodNameByWorker[p.Name] = w
+}
+
+// CHECKME should this be part of the pod controller?
+func (s *Scheduler) updatePods(intervalMillis uint) {
+	for {
+		var wg sync.WaitGroup
+
+		// fetch pods from all workers asynchronously
+		for _, w := range s.Database.GetWorkers() {
+			wg.Add(1)
+
+			go func(worker string) {
+				defer wg.Done()
+
+				resp, err := http.Get(fmt.Sprintf("%s/pods", worker))
+				if err != nil {
+					log.Printf("error connecting to %s: %v", worker, err)
+					return
+				}
+
+				defer resp.Body.Close()
+
+				if resp.StatusCode != http.StatusOK {
+					log.Printf("error getting pods from %s: %v", worker, err)
+					return
+				}
+
+				pods := []model.Pod{}
+				json.NewDecoder(resp.Body).Decode(&pods)
+
+				for _, p := range pods {
+					switch p.State {
+					case model.Stopped:
+						// TODO delete s.PodNameByWorker as well
+						s.Database.DeletePod(p.Name)
+					default:
+						s.Database.AddPod(p)
+					}
+				}
+			}(w)
+		}
+
+		wg.Wait()
+		time.Sleep(time.Millisecond * time.Duration(intervalMillis))
+	}
+}
+
+// TODO Need algorithm for selecting workers. This is a first pass round-robin approach.
+func (s *Scheduler) selectWorker() string {
+	if s.NextWorker == len(s.Database.GetWorkers())-1 {
+		s.NextWorker = 0
+	}
+
+	return s.Database.GetWorkers()[s.NextWorker]
 }

@@ -2,6 +2,7 @@ package pod
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"github.com/dkartachov/borz/internal/model"
@@ -20,10 +21,10 @@ func (a *API) createPodHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	pod.State = model.Pending
-	ok := a.scheduler.EnqueuePod(pod)
-	if !ok {
+	err = a.scheduler.EnqueuePod(pod)
+	if err != nil {
 		// CHECKME is this the proper status code to respond with?
-		http.Error(w, "job queue full", http.StatusUnprocessableEntity)
+		http.Error(w, fmt.Sprintf("error queuing pod: %v", err), http.StatusUnprocessableEntity)
 		return
 	}
 
