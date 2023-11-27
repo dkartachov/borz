@@ -2,14 +2,13 @@ package manager
 
 import (
 	"log"
-	"net/http"
 	"strconv"
 	"strings"
 
-	"github.com/dkartachov/borz/internal/manager/api"
+	"github.com/dkartachov/borz/internal/manager/apiserver"
+	"github.com/dkartachov/borz/internal/manager/controller"
 	"github.com/dkartachov/borz/internal/manager/database"
 	"github.com/dkartachov/borz/internal/manager/scheduler"
-	"github.com/dkartachov/borz/internal/model"
 )
 
 func Run(args []string) {
@@ -17,28 +16,16 @@ func Run(args []string) {
 	port, _ := strconv.Atoi(args[1])
 	workers := strings.Split(args[2], ",")
 
-	db := database.Database{}
+	db := &database.Database{}
 	db.Init()
 	db.AddWorkers(workers)
 
-	sched := scheduler.Scheduler{
-		// TODO make channel size configurable
-		PodQueue:        make(chan model.Pod, 1),
-		PodNameByWorker: make(map[string]string),
-		NextWorker:      0,
-		Database:        &db,
-		Client:          &http.Client{},
-	}
+	scheduler := scheduler.New(db)
+	podController := controller.NewPodController(db)
+	server := apiserver.New("localhost", port, scheduler, db, podController)
 
-	server := api.Server{
-		Manager:   name,
-		Address:   "localhost",
-		Port:      port,
-		Scheduler: &sched,
-		Database:  &db,
-	}
-
-	go sched.Start()
+	go scheduler.Start()
+	go podController.Start()
 	server.Start()
 
 	log.Printf("[%s] exiting", name)

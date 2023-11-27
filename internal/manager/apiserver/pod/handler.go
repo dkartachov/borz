@@ -9,7 +9,7 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
-func (a *API) createPodHandler(w http.ResponseWriter, r *http.Request) {
+func (a *PodAPI) createPodHandler(w http.ResponseWriter, r *http.Request) {
 	pod := model.Pod{}
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
@@ -35,31 +35,25 @@ func (a *API) createPodHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(pod)
 }
 
-func (a *API) deletePodHandler(w http.ResponseWriter, r *http.Request) {
+func (a *PodAPI) deletePodHandler(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
 	if name == "" {
 		http.Error(w, "provide pod name", http.StatusBadRequest)
 		return
 	}
 
-	_, ok := a.scheduler.PodNameByWorker[name]
+	_, ok := a.database.GetWorkerFromPod(name)
 	if !ok {
 		http.Error(w, "pod not found", http.StatusNotFound)
 		return
 	}
 
-	statusCode, body := a.scheduler.SendPodForDeletion(name)
-	// if statusCode == http.StatusNoContent {
-	// 	pod := a.database.GetPod(name)
-	// 	pod.State = model.Stopping
-	// 	a.database.AddPod(pod)
-	// }
-
+	statusCode, body := a.podController.SendPodForDeletion(name)
 	w.WriteHeader(statusCode)
 	json.NewEncoder(w).Encode(body)
 }
 
-func (a *API) getPodsHandler(w http.ResponseWriter, r *http.Request) {
+func (a *PodAPI) getPodsHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("content-type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(a.database.GetPods())

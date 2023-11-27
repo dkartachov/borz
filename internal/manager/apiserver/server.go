@@ -1,4 +1,4 @@
-package api
+package apiserver
 
 import (
 	"context"
@@ -8,10 +8,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dkartachov/borz/internal/manager/api/deployment"
-	"github.com/dkartachov/borz/internal/manager/api/pod"
-	"github.com/dkartachov/borz/internal/manager/api/task"
-	"github.com/dkartachov/borz/internal/manager/api/worker"
+	"github.com/dkartachov/borz/internal/manager/apiserver/deployment"
+	"github.com/dkartachov/borz/internal/manager/apiserver/pod"
+	"github.com/dkartachov/borz/internal/manager/apiserver/worker"
+	"github.com/dkartachov/borz/internal/manager/controller"
 	"github.com/dkartachov/borz/internal/manager/database"
 	"github.com/dkartachov/borz/internal/manager/scheduler"
 	"github.com/go-chi/chi/v5"
@@ -19,15 +19,27 @@ import (
 )
 
 type Server struct {
-	Address   string
-	Port      int
-	Scheduler *scheduler.Scheduler
-	Database  *database.Database
-	Manager   string
+	Address       string
+	Port          int
+	Scheduler     *scheduler.Scheduler
+	Database      *database.Database
+	PodController *controller.PodController
+	Manager       string
 
 	router   *chi.Mux
 	shutdown chan struct{}
 	online   bool
+}
+
+func New(address string, port int, s *scheduler.Scheduler, db *database.Database, pc *controller.PodController) *Server {
+	return &Server{
+		Manager:       address,
+		Address:       address,
+		Port:          port,
+		Scheduler:     s,
+		Database:      db,
+		PodController: pc,
+	}
 }
 
 func (s *Server) Start() {
@@ -81,10 +93,9 @@ func (s *Server) init() {
 		})
 	})
 
-	s.router.Mount("/tasks", task.Router(s.Database))
 	s.router.Mount("/deployments", deployment.Router(s.Database))
 	s.router.Mount("/workers", worker.Router(s.Database))
-	s.router.Mount("/pods", pod.Router(s.Database, s.Scheduler))
+	s.router.Mount("/pods", pod.Router(s.Database, s.Scheduler, s.PodController))
 	// CHECKME Should this be a DELETE endpoint? Should this be moved somewhere else?
 	s.router.Delete("/shutdown", func(w http.ResponseWriter, r *http.Request) {
 		// TODO shut down scheduler before server
