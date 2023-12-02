@@ -46,6 +46,21 @@ func (s *Store) GetPods() []model.Pod {
 	return pods
 }
 
+func (s *Store) GetPodsByName(name string) []model.Pod {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var pods []model.Pod
+
+	for _, p := range s.pods {
+		if p.Name == name {
+			pods = append(pods, p)
+		}
+	}
+
+	return pods
+}
+
 func (s *Store) GetPod(name string) model.Pod {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

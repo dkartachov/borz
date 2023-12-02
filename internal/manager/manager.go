@@ -22,10 +22,12 @@ func Run(args []string) {
 
 	scheduler := scheduler.New(db)
 	podController := controller.NewPodController(db)
+	deploymentController := controller.NewDeploymentController(db, scheduler)
 	server := apiserver.New("localhost", port, scheduler, db, podController)
 
 	go scheduler.Start()
 	go podController.Start()
+	go deploymentController.Start()
 	server.Start()
 
 	log.Printf("[%s] exiting", name)

@@ -11,9 +11,18 @@ import (
 )
 
 func (a *API) getPodsHandler(w http.ResponseWriter, r *http.Request) {
+	name := r.URL.Query().Get("name")
+	var pods []model.Pod
+
+	if name != "" {
+		pods = a.borzlet.Store.GetPodsByName(name)
+	} else {
+		pods = a.borzlet.Store.GetPods()
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(a.borzlet.Store.GetPods())
+	json.NewEncoder(w).Encode(pods)
 }
 
 func (a *API) createPodHandler(w http.ResponseWriter, r *http.Request) {

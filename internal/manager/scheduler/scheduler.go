@@ -36,7 +36,6 @@ func (s *Scheduler) Start() {
 	s.queueOnline = true
 
 	go s.schedulePods()
-	// s.updatePods(1000)
 }
 
 func (s *Scheduler) EnqueuePod(p model.Pod) error {

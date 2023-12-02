@@ -7,6 +7,7 @@ import (
 
 	"github.com/dkartachov/borz/internal/model"
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 )
 
 func (a *PodAPI) createPodHandler(w http.ResponseWriter, r *http.Request) {
@@ -20,6 +21,7 @@ func (a *PodAPI) createPodHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	pod.ID = uuid.New()
 	pod.State = model.Pending
 	err = a.scheduler.EnqueuePod(pod)
 	if err != nil {

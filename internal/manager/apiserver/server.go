@@ -93,9 +93,9 @@ func (s *Server) init() {
 		})
 	})
 
-	s.router.Mount("/deployments", deployment.Router(s.Database))
 	s.router.Mount("/workers", worker.Router(s.Database))
 	s.router.Mount("/pods", pod.Router(s.Database, s.Scheduler, s.PodController))
+	s.router.Mount("/deployments", deployment.Router(s.Database))
 	// CHECKME Should this be a DELETE endpoint? Should this be moved somewhere else?
 	s.router.Delete("/shutdown", func(w http.ResponseWriter, r *http.Request) {
 		// TODO shut down scheduler before server

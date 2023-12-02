@@ -1,5 +1,7 @@
 package model
 
+import "github.com/google/uuid"
+
 type State string
 
 const (
@@ -19,6 +21,7 @@ type Container struct {
 }
 
 type Pod struct {
+	ID         uuid.UUID
 	Name       string
 	Containers []Container
 	State      State

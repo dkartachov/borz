@@ -92,6 +92,7 @@ func (pc *PodController) updatePods() {
 					pc.database.DeletePod(p.Name)
 					pc.database.RemovePodFromWorker(p.Name)
 				default:
+					// technically the pod is updated by overwriting the key in the map. AddPod also does that.
 					pc.database.AddPod(p)
 				}
 			}
