@@ -1,4 +1,4 @@
-package api
+package borzlet
 
 import (
 	"context"
@@ -7,26 +7,33 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/dkartachov/borz/internal/worker/api/pod"
-	"github.com/dkartachov/borz/internal/worker/borzlet"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 )
 
 type Server struct {
-	Address string
-	Port    int
-	Worker  string
-	Borzlet *borzlet.Borzlet
+	address string
+	port    int
+	borzlet *Borzlet
 
 	router   *chi.Mux
 	shutdown chan struct{}
 }
 
+func NewBorzletServer(address string, port int, b *Borzlet) *Server {
+	return &Server{
+		address:  address,
+		port:     port,
+		borzlet:  b,
+		router:   chi.NewRouter(),
+		shutdown: make(chan struct{}),
+	}
+}
+
 func (s *Server) Start() {
 	s.init()
 	server := http.Server{
-		Addr:    fmt.Sprintf("%s:%d", s.Address, s.Port),
+		Addr:    fmt.Sprintf("%s:%d", s.address, s.port),
 		Handler: s.router,
 	}
 
@@ -37,19 +44,19 @@ func (s *Server) Start() {
 	go func() {
 		<-s.shutdown
 
-		log.Printf("[%s] shutting down API server", s.Worker)
+		log.Print("shutting down borzlet server")
 
 		shutdownCtx, cancelShutdownCtx := context.WithTimeout(serverCtx, time.Second*60)
 		defer cancelShutdownCtx()
 
 		if err := server.Shutdown(shutdownCtx); err != nil {
-			log.Fatalf("[%s] shutdown timed out, forcing exit: %v", s.Worker, err)
+			log.Fatalf("shutdown timed out, forcing exit: %v", err)
 		}
 
 		cancelServerCtx()
 	}()
 
-	log.Printf("[%s] server listening on port %d", s.Worker, s.Port)
+	log.Printf("borzlet server listening on port %d", s.port)
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
 	}
@@ -58,13 +65,11 @@ func (s *Server) Start() {
 }
 
 func (s *Server) init() {
-	s.shutdown = make(chan struct{})
-	s.router = chi.NewRouter()
 	s.router.Use(middleware.Logger)
-	s.router.Mount("/pods", pod.Router(s.Borzlet))
+	s.router.Mount("/pods", Router(s.borzlet))
 	// CHECKME Should this be a DELETE endpoint? Should this be moved somewhere else?
 	s.router.Delete("/shutdown", func(w http.ResponseWriter, r *http.Request) {
-		err := s.Borzlet.StopPods(context.Background())
+		err := s.borzlet.StopPods(context.Background())
 		if err != nil {
 			log.Printf("error stopping pods: %v", err)
 			w.WriteHeader(http.StatusInternalServerError)

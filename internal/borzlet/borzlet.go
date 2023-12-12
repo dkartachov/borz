@@ -4,51 +4,40 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/http"
+	"strconv"
+	"sync"
 	"time"
 
 	"github.com/dkartachov/borz/internal/docker"
 	"github.com/dkartachov/borz/internal/model"
+	"github.com/google/uuid"
 )
 
 type Borzlet struct {
-	// TODO improve queue by abstracting the tasks being processed (https://mrkaran.dev/posts/job-queue-golang/)
-	JobQueue chan model.Pod
-	Store    *Store
-	Shutdown chan struct{}
-
-	queueOnline bool
+	client *http.Client
+	pods   map[uuid.UUID]model.Pod
+	mu     sync.RWMutex
 }
 
-func (b *Borzlet) Start() {
-	b.RunPods()
-}
-
-func (b *Borzlet) EnqueuePod(p model.Pod) error {
-	if !b.queueOnline {
-		return fmt.Errorf("queue offline")
-	}
-
-	select {
-	case b.JobQueue <- p:
-		return nil
-	default:
-		return fmt.Errorf("queue full")
+func newBorzlet() *Borzlet {
+	return &Borzlet{
+		client: &http.Client{
+			Timeout: time.Second * 10,
+		},
+		pods: make(map[uuid.UUID]model.Pod),
 	}
 }
 
-func (b *Borzlet) RunPods() {
-	b.queueOnline = true
+func Run(args []string) {
+	address := args[0]
+	port, _ := strconv.Atoi(args[1])
 
-	for {
-		select {
-		case p := <-b.JobQueue:
-			go b.runPod(p)
-		case <-b.Shutdown:
-			// CHECKME should channel be "flushed"?
-			b.queueOnline = false
-			return
-		}
-	}
+	borzlet := newBorzlet()
+	server := NewBorzletServer(address, port, borzlet)
+	server.Start()
+
+	log.Print("exiting")
 }
 
 func (b *Borzlet) runPod(p model.Pod) {
@@ -80,15 +69,16 @@ func (b *Borzlet) startPod(ctx context.Context, p model.Pod) error {
 		containerID, err := d.Start(ctx)
 		if err != nil {
 			p.State = model.Error
-			b.Store.AddPod(p)
+			b.addPod(p)
 			return fmt.Errorf("error starting container: %v", err)
 		}
 
-		b.Store.AddContainerID(p.Name, c.Name, containerID)
+		c.ID = containerID
+		b.updateContainerInPod(p.ID, c)
 	}
 
 	p.State = model.Running
-	b.Store.AddPod(p)
+	b.addPod(p)
 	return nil
 }
 
@@ -102,13 +92,13 @@ func (b *Borzlet) stopPod(ctx context.Context, pod model.Pod) error {
 		err := d.Stop(ctx)
 		if err != nil {
 			pod.State = model.Error
-			b.Store.AddPod(pod)
+			b.addPod(pod)
 			return fmt.Errorf("error stopping container: %v", err)
 		}
 	}
 
 	pod.State = model.Stopped
-	b.Store.AddPod(pod)
+	b.addPod(pod)
 	return nil
 }
 
@@ -117,10 +107,11 @@ func (b *Borzlet) StopPods(ctx context.Context) error {
 	ctx, cancelCtx := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancelCtx()
 
-	stoppedPods := make(chan model.Pod, len(b.Store.GetPods()))
-	failedPods := make(chan model.Pod, len(b.Store.GetPods()))
+	runningPods := b.getRunningPods()
+	stoppedPods := make(chan model.Pod, len(runningPods))
+	failedPods := make(chan model.Pod, len(runningPods))
 
-	for _, p := range b.Store.GetPods() {
+	for _, p := range runningPods {
 		go func(pod model.Pod) {
 			err := b.stopPod(context.Background(), pod)
 			if err != nil {
@@ -133,7 +124,7 @@ func (b *Borzlet) StopPods(ctx context.Context) error {
 		}(p)
 	}
 
-	for i := 0; i < len(b.Store.GetPods()); i++ {
+	for i := 0; i < len(runningPods); i++ {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -144,5 +135,3 @@ func (b *Borzlet) StopPods(ctx context.Context) error {
 
 	return nil
 }
-
-// TODO add some kind of purge function that runs every few minutes to purge any stopped pods from memory

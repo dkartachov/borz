@@ -1,11 +1,16 @@
 package main
 
 import (
-	"os"
-
-	"github.com/dkartachov/borz/internal/manager"
+	"github.com/dkartachov/borz/pkg/apiserver"
+	"github.com/dkartachov/borz/pkg/model"
+	"github.com/dkartachov/borz/pkg/store"
 )
 
 func main() {
-	manager.Run(os.Args[1:])
+	store := store.NewMemoryStore()
+	store.AddWorker(model.Worker{Addr: "localhost:3001"})
+	store.AddWorker(model.Worker{Addr: "localhost:3002"})
+
+	server := apiserver.NewServer("localhost", 3000, store)
+	server.Start()
 }

@@ -3,9 +3,9 @@ package main
 import (
 	"os"
 
-	"github.com/dkartachov/borz/internal/worker"
+	"github.com/dkartachov/borz/internal/borzlet"
 )
 
 func main() {
-	worker.Run(os.Args[1:])
+	borzlet.Run(os.Args[1:])
 }
