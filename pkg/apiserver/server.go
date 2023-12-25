@@ -34,6 +34,7 @@ func (s *Server) Start() {
 		r.Get("/", s.getPodsHandler)
 		r.Get("/{id}", s.getPodHandler)
 		r.Post("/", s.createPodHandler)
+		r.Patch("/{id}", s.updatePodHandler)
 		r.Delete("/{name}", s.deletePodHandler)
 	})
 
@@ -49,5 +50,5 @@ func (s *Server) Start() {
 	}
 
 	log.Printf("API server listening on port %d", s.port)
-	log.Fatal(server.ListenAndServe())
+	server.ListenAndServe()
 }

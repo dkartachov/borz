@@ -14,10 +14,10 @@ const (
 )
 
 type Container struct {
+	ID    string
 	Name  string
 	Image string
 	Port  int
-	ID    string
 }
 
 type Pod struct {

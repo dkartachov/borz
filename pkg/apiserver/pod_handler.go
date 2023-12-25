@@ -11,6 +11,17 @@ import (
 	"github.com/google/uuid"
 )
 
+type podPatchRequest struct {
+	name       *string                  `json:"name,omitempty"`
+	containers *[]containerPatchRequest `json:"containers,omitempty"`
+}
+
+type containerPatchRequest struct {
+	name  *string `json:"name,omitempty"`
+	image *string `json:"image,omitempty"`
+	port  *int    `json:"port,omitempty"`
+}
+
 func (s *Server) createPodHandler(w http.ResponseWriter, r *http.Request) {
 	pod := model.Pod{}
 	decoder := json.NewDecoder(r.Body)
@@ -27,13 +38,54 @@ func (s *Server) createPodHandler(w http.ResponseWriter, r *http.Request) {
 
 	err = s.store.AddPod(pod)
 	if err != nil {
-		log.Fatalf("error adding pod to store %s", pod.Name)
+		log.Printf("error adding pod to store %s", pod.Name)
 		http.Error(w, "error creating pod", http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("content-type", "application/json")
 	w.WriteHeader(http.StatusProcessing)
+	json.NewEncoder(w).Encode(pod)
+}
+
+func (s *Server) updatePodHandler(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		http.Error(w, "missing uuid", http.StatusBadRequest)
+		return
+	}
+
+	uuid, err := uuid.Parse(id)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("invalid uuid %s", id), http.StatusBadRequest)
+		return
+	}
+
+	pod, err := s.store.GetPod(uuid)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("error getting pod %s", uuid), http.StatusInternalServerError)
+		return
+	}
+
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+
+	err = decoder.Decode(pod)
+	if err != nil {
+		log.Print(err)
+		http.Error(w, "invalid patch request body", http.StatusBadRequest)
+		return
+	}
+
+	err = s.store.UpdatePod(*pod)
+	if err != nil {
+		log.Print(err)
+		http.Error(w, "error patching pod", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("content-type", "application/json")
+	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(pod)
 }
 
@@ -78,6 +130,7 @@ func (s *Server) getPodHandler(w http.ResponseWriter, r *http.Request) {
 	uuid, err := uuid.Parse(id)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("invalid uuid %s", id), http.StatusBadRequest)
+		return
 	}
 
 	pod, err := s.store.GetPod(uuid)

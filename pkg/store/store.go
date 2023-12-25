@@ -6,11 +6,12 @@ import (
 )
 
 type Store interface {
-	AddPod(p model.Pod) error
+	AddPod(model.Pod) error
+	UpdatePod(model.Pod) error
 	GetPods() ([]model.Pod, error)
-	GetPod(id uuid.UUID) (*model.Pod, error)
-	DeletePod(id uuid.UUID) error
+	GetPod(uuid.UUID) (*model.Pod, error)
+	DeletePod(uuid.UUID) error
 
-	AddWorker(w model.Worker) error
+	AddWorker(model.Worker) error
 	GetWorkers() ([]model.Worker, error)
 }

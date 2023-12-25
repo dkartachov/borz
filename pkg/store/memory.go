@@ -35,6 +35,10 @@ func (s *MemoryStore) AddPod(p model.Pod) error {
 	return nil
 }
 
+func (s *MemoryStore) UpdatePod(p model.Pod) error {
+	return s.AddPod(p)
+}
+
 func (s *MemoryStore) GetPod(id uuid.UUID) (*model.Pod, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
